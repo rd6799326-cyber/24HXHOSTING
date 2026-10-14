@@ -526,4 +526,274 @@ To search, use:
     
     back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📁 View All Files", callback_data="check_files")],
+        [InlineKeyboardButton(text="🏠 MainMeption as e:
+            logger.error(f"pip install error for {pip_name}: {e}")
+            failed.append(pip_name)
+
+    return installed, failed
+
+def get_user_file_limit(user_id):
+    return OWNER_LIMIT  # Sabke liye unlimited — koi upload limit nahi
+
+def format_limit(limit):
+    return "Unlimited ♾️" if limit == float('inf') else f"{limit} files"
+
+def get_main_keyboard(user_id):
+    if user_id in admin_ids:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📢 Updates", url=UPDATE_CHANNEL)],
+            [InlineKeyboardButton(text="📤 Upload File", callback_data="upload_file"),
+             InlineKeyboardButton(text="📁 My Files", callback_data="check_files")],
+            [InlineKeyboardButton(text="🔍 Search Files", callback_data="search_files"),
+             InlineKeyboardButton(text="⚡ Bot Speed", callback_data="bot_speed")],
+            [InlineKeyboardButton(text="📊 My Stats", callback_data="statistics"),
+             InlineKeyboardButton(text="👑 Admin Panel", callback_data="admin_panel")],
+            [InlineKeyboardButton(text="💬 Contact", url=f"https://t.me/{YOUR_USERNAME.replace('@', '')}")]
+        ])
+    else:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📢 Updates Channel", url=UPDATE_CHANNEL)],
+            [InlineKeyboardButton(text="📤 Upload File", callback_data="upload_file"),
+             InlineKeyboardButton(text="📁 My Files", callback_data="check_files")],
+            [InlineKeyboardButton(text="🔍 Search Files", callback_data="search_files"),
+             InlineKeyboardButton(text="⚡ Bot Speed", callback_data="bot_speed")],
+            [InlineKeyboardButton(text="📊 My Stats", callback_data="statistics")],
+            [InlineKeyboardButton(text="💬 Contact Owner", url=f"https://t.me/{YOUR_USERNAME.replace('@', '')}")]
+        ])
+    return keyboard
+
+def get_admin_panel_keyboard():
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏱️ Bot Uptime", callback_data="admin_bot_uptime")],
+        [InlineKeyboardButton(text="👥 Total Users", callback_data="admin_total_users_simple")],
+        [InlineKeyboardButton(text="📝 Logs", callback_data="admin_view_logs")],
+        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="back_to_main")]
+    ])
+    return keyboard
+
+def build_welcome_text(user_id: int, full_name: str) -> str:
+    return f"""╔═══════════════════════╗
+    🚀 <b>GENIUS HOSTBOT</b> 🚀
+    ⚡ <i>Script Runner Bot</i>
+╚═══════════════════════╝
+
+👋 <b>Welcome, {full_name}!</b>
+
+🆔 <b>Your ID:</b> <code>{user_id}</code>
+📦 <b>Upload Limit:</b> Unlimited ♾️
+
+━━━━━━━━━━━━━━━━━━━━
+<b>🔥 AVAILABLE FEATURES</b>
+
+📤 <b>Upload Files</b> — Python, JS, ZIP
+📁 <b>Manage Files</b> — View, delete, organize
+🔍 <b>Search Files</b> — Find by name/type
+▶️ <b>Run Scripts</b> — Execute Python/Node.js
+🛑 <b>Stop Scripts</b> — Force stop running
+📊 <b>View Stats</b> — Usage & storage
+⚡ <b>Speed Test</b> — Bot response time
+💾 <b>File Info</b> — Size, type, date
+ℹ️ <b>Help &amp; Support</b> — Get assistance
+
+━━━━━━━━━━━━━━━━━━━━
+📢 <b>Updates:</b> {UPDATE_CHANNEL}
+🎥 <b>YouTube:</b> {UPDATE_GROUP}
+
+⚡ <b>Developed by</b> Aditya (Genius Hacker)
+🔒 <b>Version:</b> 2.0"""
+
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    user_id = message.from_user.id
+    
+    if user_id in banned_users:
+        await message.answer("🚫 <b>You are banned from using this bot!</b>\n\nContact admin for more info.", parse_mode="HTML")
+        return
+    
+    active_users.add(user_id)
+    
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        c = conn.cursor()
+        now = datetime.now().isoformat()
+        c.execute('INSERT OR IGNORE INTO active_users (user_id, join_date, last_active) VALUES (?, ?, ?)', 
+                  (user_id, now, now))
+        c.execute('UPDATE active_users SET last_active = ? WHERE user_id = ?', (now, user_id))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error saving active user: {e}")
+    
+    welcome_text = build_welcome_text(user_id, message.from_user.full_name)
+    await message.answer(welcome_text, reply_markup=get_main_keyboard(user_id), parse_mode="HTML")
+
+@dp.callback_query(F.data == "back_to_main")
+async def callback_back_to_main(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    
+    welcome_text = f"""
+╔═══════════════════════╗
+    🏠 <b>MAIN MENU</b> 🏠
+╚═══════════════════════╝
+
+👤 <b>User:</b> {callback.from_user.full_name}
+🆔 <b>ID:</b> <code>{user_id}</code>
+📦 <b>Files:</b> {len(user_files.get(user_id, []))} (Unlimited ♾️)
+
+Use buttons below to navigate 👇
+"""
+    await callback.message.edit_text(welcome_text, reply_markup=get_main_keyboard(user_id), parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(F.data == "upload_file")
+async def callback_upload_file(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    
+    if bot_locked and user_id not in admin_ids:
+        await callback.answer("🔒 Bot is locked for maintenance!", show_alert=True)
+        return
+    
+    current_files = len(user_files.get(user_id, []))
+    limit = get_user_file_limit(user_id)
+    
+    upload_text = f"""
+╔═══════════════════════╗
+    📤 <b>UPLOAD FILES</b> 📤
+╚═══════════════════════╝
+
+📊 <b>Current Usage:</b> {current_files} files (Unlimited ♾️)
+
+📝 <b>Supported Formats:</b>
+🐍 Python (.py)
+🟨 JavaScript (.js)
+📦 ZIP Archives (.zip)
+
+━━━━━━━━━━━━━━━━━━━━
+<b>💡 How to Upload:</b>
+
+1️⃣ Send your file to the bot
+2️⃣ Wait for upload confirmation
+3️⃣ File will be saved automatically
+
+⚡ <b>Upload limit:</b> {limit} files
+🔥 <b>Quick & Easy!</b>
+"""
+    
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="back_to_main")]
+    ])
+    
+    await callback.message.edit_text(upload_text, reply_markup=back_keyboard, parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(F.data == "check_files")
+async def callback_check_files(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    files = user_files.get(user_id, [])
+    
+    if not files:
+        text = """
+╔═══════════════════════╗
+    📁 <b>MY FILES</b> 📁
+╚═══════════════════════╝
+
+📭 <b>No files found!</b>
+
+Upload your first file to get started! 🚀
+"""
+        back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📤 Upload File", callback_data="upload_file")],
+            [InlineKeyboardButton(text="🏠 Main Menu", callback_data="back_to_main")]
+        ])
+    else:
+        text = f"""
+╔═══════════════════════╗
+    📁 <b>MY FILES ({len(files)})</b> 📁
+╚═══════════════════════╝
+
+"""
+        buttons = []
+        for i, (file_name, file_type) in enumerate(files, 1):
+            icon = "🐍" if file_type == "py" else "🟨" if file_type == "js" else "📦"
+            text += f"{i}. {icon} <code>{file_name}</code>\n"
+            
+            is_favorite = file_name in user_favorites.get(user_id, [])
+            star = "⭐" if is_favorite else "☆"
+            
+            buttons.append([
+                InlineKeyboardButton(text=f"▶️ Run {file_name[:15]}", callback_data=f"run_script:{file_name}"),
+                InlineKeyboardButton(text=f"{star}", callback_data=f"toggle_fav:{file_name}")
+            ])
+            buttons.append([
+                InlineKeyboardButton(text=f"ℹ️ Info {file_name[:15]}", callback_data=f"file_info:{file_name}"),
+                InlineKeyboardButton(text=f"🗑️ Delete", callback_data=f"delete_file:{file_name}")
+            ])
+        
+        buttons.append([InlineKeyboardButton(text="🏠 Main Menu", callback_data="back_to_main")])
+        back_keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    
+    await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(F.data == "my_favorites")
+async def callback_my_favorites(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    favorites = user_favorites.get(user_id, [])
+    
+    if not favorites:
+        text = """
+╔═══════════════════════╗
+    ⭐ <b>FAVORITES</b> ⭐
+╚═══════════════════════╝
+
+💭 No favorite files yet!
+
+Add files to favorites for quick access! 🚀
+"""
+        buttons = [[InlineKeyboardButton(text="🏠 Main Menu", callback_data="back_to_main")]]
+    else:
+        text = f"""
+╔═══════════════════════╗
+    ⭐ <b>FAVORITES ({len(favorites)})</b> ⭐
+╚═══════════════════════╝
+
+"""
+        buttons = []
+        for i, file_name in enumerate(favorites, 1):
+            text += f"{i}. ⭐ <code>{file_name}</code>\n"
+            buttons.append([
+                InlineKeyboardButton(text=f"▶️ {file_name[:20]}", callback_data=f"run_script:{file_name}"),
+                InlineKeyboardButton(text=f"❌", callback_data=f"toggle_fav:{file_name}")
+            ])
+        
+        buttons.append([InlineKeyboardButton(text="🏠 Main Menu", callback_data="back_to_main")])
+    
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(F.data == "search_files")
+async def callback_search_files(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    files = user_files.get(user_id, [])
+    
+    text = f"""
+╔═══════════════════════╗
+    🔍 <b>SEARCH FILES</b> 🔍
+╚═══════════════════════╝
+
+📊 <b>Total Files:</b> {len(files)}
+
+<b>File Types:</b>
+🐍 Python: {sum(1 for f in files if f[1] == 'py')}
+🟨 JavaScript: {sum(1 for f in files if f[1] == 'js')}
+📦 ZIP: {sum(1 for f in files if f[1] == 'zip')}
+
+━━━━━━━━━━━━━━━━━━━━
+To search, use:
+<code>/search filename</code>
+"""
+    
+    back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📁 View All Files", callback_data="check_files")],
         [InlineKeyboardButton(text="🏠 Main M
